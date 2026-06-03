@@ -181,8 +181,9 @@ export default function BettingArenaPage() {
             walletBalance={walletBalance}
             formatCurrency={formatCurrency}
             onWalletUpdate={handleWalletUpdate}
+          />
+        </div>
 
-        {/* Drawer Settings */}
         {isDrawerOpen && (
           <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm animate-fade-in">
             <div className="h-full w-full max-w-md bg-[#1a1f3a] p-6 shadow-2xl flex flex-col justify-between border-l border-cyan-blue/15 animate-slide-in-right overflow-y-auto">
