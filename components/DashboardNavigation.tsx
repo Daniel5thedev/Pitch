@@ -17,6 +17,7 @@ import {
   TrendingUp 
 } from "lucide-react";
 import { MockDatabase } from "@/lib/mockData";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export function DashboardNavigation() {
   const pathname = usePathname();
@@ -140,6 +141,7 @@ export function DashboardNavigation() {
               <span className="block text-[8px] text-gray-muted font-mono leading-none truncate">kes-wallet-cap</span>
             </div>
           </div>
+          <ThemeToggle />
         </div>
       </aside>
 
@@ -157,7 +159,8 @@ export function DashboardNavigation() {
         </Link>
 
         <div className="flex items-center gap-3">
-
+          <ThemeToggle />
+          {/* Mini Wallet */}
           <Link href="/dashboard" className="flex items-center gap-1.5 bg-[#121e15]/60 border border-[#00FF87]/15 rounded-lg px-2.5 py-1 text-[#00FF87] text-[10px] font-heading font-extrabold uppercase">
             <Wallet className="h-3.5 w-3.5" />
             <span className="tabular-nums">{formatCurrency(walletBalance)}</span>

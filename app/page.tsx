@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Canvas3DFootball } from "@/components/Canvas3DFootball";
 import { 
   ChevronRight, 
@@ -30,10 +31,6 @@ export default function LandingPage() {
   const [activeFaq, setActiveFaq] = useState<number | null>(null);
   const [emailInput, setEmailInput] = useState("");
   const [showLocalBall, setShowLocalBall] = useState(false);
-
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", "dark");
-  }, []);
 
   useEffect(() => {
     // Check if splash has already played or if it completes
@@ -182,6 +179,7 @@ export default function LandingPage() {
               </div>
 
               <div className="flex items-center gap-3">
+                <ThemeToggle />
                 <Link
                   href="/venues"
                   className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#00FF87] text-[#040a06] hover:bg-[#00FF87]/90 text-xs font-bold font-heading uppercase tracking-wider transition active:scale-95 shadow-[0_0_15px_rgba(0,255,135,0.35)] hover:shadow-[0_0_25px_rgba(0,255,135,0.5)] hover:translate-y-[-1px]"

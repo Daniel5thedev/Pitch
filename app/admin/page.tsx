@@ -41,8 +41,6 @@ export default function AdminDashboardPage() {
   const [selectedChartTab, setSelectedChartTab] = useState<"revenue" | "occupancy">("revenue");
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", "light");
-
     // Load admin metrics
     setVenues(MockDatabase.getVenues());
     setBookings(MockDatabase.getBookings());
