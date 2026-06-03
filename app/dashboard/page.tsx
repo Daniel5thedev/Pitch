@@ -40,9 +40,11 @@ export default function UserDashboard() {
   // Forms
   const [topupAmount, setTopupAmount] = useState("");
   const [isTopupLoading, setIsTopupLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"bookings" | "wallet" | "settings">("bookings");
+  const [activeTab, setActiveTab] = useState<"overview" | "wallet" | "settings">("overview");
 
   useEffect(() => {
+    document.documentElement.setAttribute("data-theme", "light");
+
     // Load state
     setBookings(MockDatabase.getBookings());
     setWalletBalance(MockDatabase.getWalletBalance());
@@ -222,18 +224,18 @@ TOTAL SETTLED: KES ${booking.price}.00
         {/* Dashboard Tabs menu */}
         <div className="flex border-b border-white/5 pb-1 gap-6 select-none">
           <button
-            onClick={() => setActiveTab("bookings")}
-            className={`pb-3 px-1 text-xs font-bold font-heading uppercase tracking-widest relative transition-all duration-300 ${
-              activeTab === "bookings"
-                ? "text-[#00FF87] text-glow-green"
-                : "text-gray-muted hover:text-white"
-            }`}
-          >
-            <CalendarDays className="inline h-4 w-4 mr-1.5" />
-            Bookings & Entry Passes
-            {activeTab === "bookings" && (
-              <span className="absolute bottom-[-1px] left-0 right-0 h-0.5 bg-gradient-to-r from-[#00FF87] to-[#60EFFF] shadow-[0_0_8px_rgba(0,255,135,0.5)]" />
-            )}
+              onClick={() => setActiveTab("overview")}
+              className={`pb-3 px-1 text-xs font-bold font-heading uppercase tracking-widest relative transition-all duration-300 ${
+                activeTab === "overview"
+                  ? "text-[#00FF87] text-glow-green"
+                  : "text-gray-muted hover:text-white"
+              }`}
+            >
+              <CalendarDays className="inline h-4 w-4 mr-1.5" />
+              Overview
+              {activeTab === "overview" && (
+                <span className="absolute bottom-[-1px] left-0 right-0 h-0.5 bg-gradient-to-r from-[#00FF87] to-[#60EFFF] shadow-[0_0_8px_rgba(0,255,135,0.5)]" />
+              )}
           </button>
           
           <button
@@ -273,11 +275,11 @@ TOTAL SETTLED: KES ${booking.price}.00
           {/* Main Tab Area (lg:col-span-8) */}
           <div className="lg:col-span-8 space-y-6">
             
-            {/* BOOKINGS TAB */}
-            {activeTab === "bookings" && (
+            {/* OVERVIEW TAB */}
+            {activeTab === "overview" && (
               <div className="space-y-6">
                 <h3 className="font-heading text-lg uppercase tracking-wider text-white flex items-center gap-1.5">
-                  <Sparkles className="h-4.5 w-4.5 text-[#00FF87]" /> Active Booking Entry Passes
+                  <Sparkles className="h-4.5 w-4.5 text-[#00FF87]" /> Overview
                 </h3>
 
                 {activeBookings.length === 0 ? (
