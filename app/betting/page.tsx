@@ -2,8 +2,6 @@
 
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { BettingConsole } from "@/components/BettingConsole";
 import { User, Wallet, History, X, Save, ArrowLeft, RefreshCw, Trophy, Coins } from "lucide-react";
 import { toast } from "sonner";
@@ -22,149 +20,63 @@ interface WalletTx {
 }
 
 export default function BettingArenaPage() {
-  const router = useRouter();
-  const [session, setSession] = useState<any>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [walletBalance, setWalletBalance] = useState<number>(0);
+  const [walletBalance, setWalletBalance] = useState<number>(250000);
   const [transactions, setTransactions] = useState<WalletTx[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
-  // Profile fields
   const [fullName, setFullName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [isSaving, startSaving] = useTransition();
 
-  const supabase = getSupabaseBrowserClient();
-
-  // Load/create anonymous session
   useEffect(() => {
-    async function initAuth() {
-      const { data: { session: currentSession } } = await supabase.auth.getSession();
-      
-      if (currentSession) {
-        setSession(currentSession);
-      } else {
-        const { data, error } = await supabase.auth.signInAnonymously();
-        if (error) {
-          toast.error("Could not set up temporary session. Using mock session.");
-        } else if (data.session) {
-          setSession(data.session);
-        }
-      }
-    }
-    void initAuth();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
-    });
-
-    return () => {
-      subscription.unsubscribe();
+    const savedProfile = window.localStorage.getItem("kahawa-profile");
+    const savedPhone = window.localStorage.getItem("kahawa-prefill-phone");
+    const defaultProfile = {
+      id: "mock-user",
+      full_name: "Captain Simba",
+      phone_number: savedPhone || "0712345678"
     };
-  }, [supabase]);
 
-  // Load wallet and profile once session is established
-  useEffect(() => {
-    if (!session?.user) return;
+    const profileData = savedProfile ? JSON.parse(savedProfile) as UserProfile : defaultProfile;
+    setProfile(profileData);
+    setFullName(profileData.full_name);
+    setPhoneNumber(profileData.phone_number);
 
-    const userId = session.user.id;
-
-    async function loadUserData() {
-      // 1. Profile
-      const { data: profData } = await supabase
-        .from("profiles")
-        .select("id, full_name, phone_number")
-        .eq("id", userId)
-        .maybeSingle();
-
-      if (profData) {
-        setProfile(profData);
-        setFullName(profData.full_name || "");
-        setPhoneNumber(profData.phone_number || "");
-      } else {
-        const defaultName = `Captain ${userId.slice(0, 4).toUpperCase()}`;
-        setFullName(defaultName);
-        setProfile({ id: userId, full_name: defaultName, phone_number: "" });
-      }
-
-      // 2. Wallet
-      const { data: walletData } = await supabase
-        .from("wallets")
-        .select("balance_minor")
-        .eq("user_id", userId)
-        .maybeSingle();
-      if (walletData) {
-        setWalletBalance(walletData.balance_minor);
-      }
-
-      // 3. Transactions
-      const { data: txData } = await supabase
-        .from("wallet_transactions")
-        .select("id, amount_minor, type, created_at")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false });
-      if (txData) {
-        setTransactions(txData as WalletTx[]);
-      }
+    const savedWallet = window.localStorage.getItem("kahawa-wallet-balance");
+    const savedTxData = window.localStorage.getItem("kahawa-wallet-transactions");
+    if (savedWallet) {
+      setWalletBalance(Number(savedWallet));
     }
-
-    void loadUserData();
-
-    // Subscribe to realtime database changes for profile and wallet
-    const walletChannel = supabase
-      .channel(`arena-wallet:${userId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "wallets", filter: `user_id=eq.${userId}` },
-        (payload: any) => {
-          if (payload.new) {
-            setWalletBalance(payload.new.balance_minor);
-          }
-        }
-      )
-      .subscribe();
-
-    const txChannel = supabase
-      .channel(`arena-txs:${userId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "wallet_transactions", filter: `user_id=eq.${userId}` },
-        (payload: any) => {
-          if (payload.eventType === "INSERT") {
-            setTransactions(curr => [payload.new as WalletTx, ...curr]);
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(walletChannel);
-      void supabase.removeChannel(txChannel);
-    };
-  }, [session, supabase]);
+    if (savedTxData) {
+      setTransactions(JSON.parse(savedTxData) as WalletTx[]);
+    }
+  }, []);
 
   const saveProfile = () => {
-    if (!session?.user) return;
-    
-    startSaving(async () => {
-      const { error } = await supabase
-        .from("profiles")
-        .upsert({
-          id: session.user.id,
-          full_name: fullName,
-          phone_number: phoneNumber
-        });
-
-      if (error) {
-        toast.error("Failed to save profile.");
-      } else {
-        setProfile({ id: session.user.id, full_name: fullName, phone_number: phoneNumber });
-        if (phoneNumber) {
-          window.localStorage.setItem("kahawa-prefill-phone", phoneNumber);
-        }
-        toast.success("Profile saved!");
-      }
+    if (!profile) return;
+    startSaving(() => {
+      const nextProfile = {
+        ...profile,
+        full_name: fullName,
+        phone_number: phoneNumber
+      };
+      setProfile(nextProfile);
+      window.localStorage.setItem("kahawa-profile", JSON.stringify(nextProfile));
+      window.localStorage.setItem("kahawa-prefill-phone", phoneNumber);
+      toast.success("Profile saved!");
     });
+  };
+
+  const handleWalletUpdate = (newBalance: number, tx?: WalletTx) => {
+    setWalletBalance(newBalance);
+    window.localStorage.setItem("kahawa-wallet-balance", String(newBalance));
+
+    if (tx) {
+      const nextTx = [tx, ...transactions].slice(0, 20);
+      setTransactions(nextTx);
+      window.localStorage.setItem("kahawa-wallet-transactions", JSON.stringify(nextTx));
+    }
   };
 
   const formatCurrency = (minor: number) => {
@@ -265,11 +177,10 @@ export default function BettingArenaPage() {
         {/* Live Betting Console */}
         <div className="bg-[#0A0F2C]/40 p-1.5 rounded-2xl border border-cyan-blue/5">
           <BettingConsole
-            currentUserId={session?.user?.id}
+            currentUserId={profile?.id}
             walletBalance={walletBalance}
             formatCurrency={formatCurrency}
-          />
-        </div>
+            onWalletUpdate={handleWalletUpdate}
 
         {/* Drawer Settings */}
         {isDrawerOpen && (
@@ -358,7 +269,7 @@ export default function BettingArenaPage() {
               </div>
 
               <div className="border-t border-gray-muted/10 pt-4 mt-6 text-center text-[10px] text-gray-muted">
-                Session ID: {session?.user?.id?.slice(0, 16)}...
+                Session ID: {profile?.id?.slice(0, 16) ?? "mock-user"}...
               </div>
 
             </div>

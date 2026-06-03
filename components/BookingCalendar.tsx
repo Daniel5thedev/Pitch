@@ -3,8 +3,6 @@
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { AlertTriangle, Check, Loader2, Lock, Timer, Info, Sparkles, Filter, Unlock } from "lucide-react";
 import { toast } from "sonner";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { useSupabaseRealtime } from "@/hooks/useSupabaseRealtime";
 import { useFeatureFlags } from "@/components/FeatureFlags";
 import type { CalendarSlot, HoldResult, Pitch, Reservation, SlotStatus } from "@/types/booking";
 
@@ -80,25 +78,11 @@ export function BookingCalendar({
   const { isEnabled } = useFeatureFlags();
 
   const pitchIds = useMemo(() => initialPitches.map((pitch) => pitch.id), [initialPitches]);
+  const [liveConnected] = useState(true);
 
   useEffect(() => {
     setReservations(initialReservations);
   }, [initialReservations]);
-
-  const patchReservation = useCallback((_event: "INSERT" | "UPDATE" | "DELETE", reservation: Reservation | null, previous: Reservation | null) => {
-    setReservations((current) => {
-      const affectedId = reservation?.id ?? previous?.id;
-      if (!affectedId) return current;
-      const without = current.filter((item) => item.id !== affectedId);
-      if (!reservation || reservation.status === "CANCELLED") return without;
-      return [...without, reservation];
-    });
-  }, []);
-
-  const realtime = useSupabaseRealtime({
-    pitchIds,
-    onReservationChange: patchReservation
-  });
 
   const timeLabels = useMemo(() => {
     const labels: { label: string; startsAt: string; endsAt: string }[] = [];
@@ -222,70 +206,38 @@ export function BookingCalendar({
     if (!selectedSlot || !canHoldSelected) return;
 
     setOptimisticSlotId(selectedSlot.id);
-    startTransition(async () => {
-      const supabase = getSupabaseBrowserClient();
-      let holdData: HoldResult | null = null;
-      let holdsErr: any = null;
+    startTransition(() => {
+      const mockHold: HoldResult = {
+        reservation_id: `mock-res-${Math.random().toString(36).substr(2, 9)}`,
+        pitch_id: selectedSlot.pitchId,
+        slot_start: selectedSlot.startsAt,
+        slot_end: selectedSlot.endsAt,
+        status: "PENDING_HOLD",
+        hold_expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+        booking_reference: `PB-MOCK-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
+        amount_minor: amountMinor
+      };
 
-      try {
-        const { data, error } = await supabase.rpc("try_hold_reservation_slot", {
-          p_pitch_id: selectedSlot.pitchId,
-          p_slot_start: selectedSlot.startsAt,
-          p_slot_end: selectedSlot.endsAt,
-          p_amount_minor: amountMinor
-        });
+      const mockReservation: Reservation = {
+        id: mockHold.reservation_id,
+        pitch_id: mockHold.pitch_id,
+        user_id: currentUserId || "mock-user",
+        slot_start: mockHold.slot_start,
+        slot_end: mockHold.slot_end,
+        status: "PENDING_HOLD",
+        hold_expires_at: mockHold.hold_expires_at,
+        booking_reference: mockHold.booking_reference,
+        checkout_request_id: `mock-checkout-${Math.random().toString(36).substr(2, 9)}`,
+        amount_minor: mockHold.amount_minor,
+        payment_error: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
 
-        if (error) {
-          holdsErr = error;
-        } else {
-          holdData = Array.isArray(data) ? data[0] as HoldResult : data as HoldResult;
-        }
-      } catch (err) {
-        holdsErr = err;
-      }
-
-      if (holdsErr) {
-        // LOCAL DEMO FALLBACK: If Supabase connection fails, create a local mock hold
-        console.warn("Supabase RPC failed. Falling back to local mock hold: ", holdsErr);
-        
-        const mockHold: HoldResult = {
-          reservation_id: `mock-res-${Math.random().toString(36).substr(2, 9)}`,
-          pitch_id: selectedSlot.pitchId,
-          slot_start: selectedSlot.startsAt,
-          slot_end: selectedSlot.endsAt,
-          status: "PENDING_HOLD",
-          hold_expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-          booking_reference: `PB-MOCK-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
-          amount_minor: amountMinor
-        };
-
-        const mockReservation: Reservation = {
-          id: mockHold.reservation_id,
-          pitch_id: mockHold.pitch_id,
-          user_id: currentUserId || "mock-user",
-          slot_start: mockHold.slot_start,
-          slot_end: mockHold.slot_end,
-          status: "PENDING_HOLD",
-          hold_expires_at: mockHold.hold_expires_at,
-          booking_reference: mockHold.booking_reference,
-          checkout_request_id: `mock-checkout-${Math.random().toString(36).substr(2, 9)}`,
-          amount_minor: mockHold.amount_minor,
-          payment_error: null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-
-        setReservations(curr => [...curr, mockReservation]);
-        setOptimisticSlotId(null);
-        toast.info("Database not linked yet. Running in Local Demo Mode.");
-        onHoldCreated(mockHold);
-        return;
-      }
-
-      if (holdData) {
-        setOptimisticSlotId(null);
-        onHoldCreated(holdData);
-      }
+      setReservations(curr => [...curr, mockReservation]);
+      setOptimisticSlotId(null);
+      toast.success("Hold created locally. Proceed to checkout.");
+      onHoldCreated(mockHold);
     });
   };
 
@@ -348,14 +300,14 @@ export function BookingCalendar({
           </button>
         </div>
 
-        {/* Realtime Ticker Status */}
+        {/* Live Demo Status */}
         <div className="flex items-center gap-2 text-xs font-heading uppercase tracking-widest">
-          <span className={`relative flex h-2.5 w-2.5`}>
-            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${realtime.connected ? "bg-[#00FF87]" : "bg-[#FF6B2C]"}`} />
-            <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${realtime.connected ? "bg-[#00FF87]" : "bg-[#FF6B2C]"}`} />
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-[#00FF87]" />
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#00FF87]" />
           </span>
-          <span className={realtime.connected ? "text-[#00FF87]" : "text-[#FF6B2C]"}>
-            {realtime.connected ? "Live Broadcast Connected" : "Sync Reconnecting..."}
+          <span className="text-[#00FF87]">
+            Live Demo Mode Active
           </span>
         </div>
       </div>
@@ -493,7 +445,7 @@ export function BookingCalendar({
             </div>
           )}
 
-          {realtime.lastError ? (
+          {false ? (
             <span className="ml-3 inline-flex items-center gap-1.5 text-[#FF6B2C] text-glow-orange">
               <AlertTriangle className="h-4 w-4 text-glow-orange" />
               Syncing retrying...

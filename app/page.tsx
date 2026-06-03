@@ -806,7 +806,7 @@ export default function LandingPage() {
           </div>
 
           <div className="border-t border-[#00FF87]/5 py-6 text-center text-[10px] text-gray-muted font-heading uppercase tracking-widest flex flex-col sm:flex-row items-center justify-between gap-4">
-            <span>© 2026 Kahawa Sport Arena · Powered by Supabase Realtime & M-Pesa.</span>
+            <span>© 2026 Kahawa Sport Arena · Powered by Local Demo Mode & M-Pesa.</span>
             <div className="flex gap-4">
               <button
                 onClick={() => {

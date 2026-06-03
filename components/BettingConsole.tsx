@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useRef, useTransition } from "react";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { LiveMatchTracker3D } from "./LiveMatchTracker3D";
 import { Trophy, Coins, TrendingUp, Receipt, Play, Clock, ChevronRight, CheckCircle2, AlertTriangle, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -44,14 +43,22 @@ interface Bet {
   createdAt: string;
 }
 
+interface WalletTx {
+  id: string;
+  amount_minor: number;
+  type: "TOPUP" | "PAYMENT" | "REFUND";
+  description: string;
+  created_at: string;
+}
+
 interface BettingConsoleProps {
   currentUserId?: string;
   walletBalance: number;
   formatCurrency: (minor: number) => string;
+  onWalletUpdate?: (newBalance: number, tx?: WalletTx) => void;
 }
 
-export function BettingConsole({ currentUserId, walletBalance, formatCurrency }: BettingConsoleProps) {
-  const supabase = getSupabaseBrowserClient();
+export function BettingConsole({ currentUserId, walletBalance, formatCurrency, onWalletUpdate }: BettingConsoleProps) {
   const [activeTab, setActiveTab] = useState<"live" | "bets">("live");
   
   // Live simulated matches state
@@ -89,7 +96,7 @@ export function BettingConsole({ currentUserId, walletBalance, formatCurrency }:
     {
       id: "m-3",
       homeTeam: "M-Pesa Dynamos",
-      awayTeam: "Supabase Rangers",
+      awayTeam: "Arena Rangers",
       scoreHome: 0,
       scoreAway: 0,
       timer: 0,
@@ -316,13 +323,15 @@ export function BettingConsole({ currentUserId, walletBalance, formatCurrency }:
         if (won) {
           const payoutKES = bet.potentialPayout;
           const payoutMinor = Math.round(payoutKES * 100);
-
-          // Credit winning money to Supabase in background
-          if (currentUserId) {
-            void creditWinningWallet(currentUserId, payoutMinor, bet.matchName);
-          } else {
-            toast.success(`🎉 Simulated WIN! You won KES ${payoutKES.toFixed(0)}!`);
-          }
+          const nextBalance = walletBalance + payoutMinor;
+          onWalletUpdate?.(nextBalance, {
+            id: `tx-${Date.now()}`,
+            amount_minor: payoutMinor,
+            type: "REFUND",
+            description: `Winning payout for ${bet.matchName}`,
+            created_at: new Date().toISOString()
+          });
+          toast.success(`🎉 Simulated WIN! You won KES ${payoutKES.toFixed(0)}!`);
         } else {
           toast.error(`😔 Your bet on ${bet.matchName} was unsuccessful.`);
         }
@@ -330,44 +339,6 @@ export function BettingConsole({ currentUserId, walletBalance, formatCurrency }:
         return { ...bet, status: nextStatus };
       });
     });
-  };
-
-  // Supabase Credit Database Query
-  const creditWinningWallet = async (userId: string, payoutMinor: number, matchName: string) => {
-    try {
-      // 1. Insert winning transaction record
-      const { error: txErr } = await supabase
-        .from("wallet_transactions")
-        .insert({
-          user_id: userId,
-          amount_minor: payoutMinor,
-          type: "REFUND" // credit refund
-        });
-
-      if (txErr) throw txErr;
-
-      // 2. Fetch current wallet balance
-      const { data: walletData, error: fetchErr } = await supabase
-        .from("wallets")
-        .select("balance_minor")
-        .eq("user_id", userId)
-        .maybeSingle();
-
-      if (fetchErr || !walletData) throw fetchErr || new Error("No wallet found");
-
-      // 3. Update wallet balance
-      const newBal = walletData.balance_minor + payoutMinor;
-      const { error: upErr } = await supabase
-        .from("wallets")
-        .update({ balance_minor: newBal })
-        .eq("user_id", userId);
-
-      if (upErr) throw upErr;
-
-      toast.success(`🎉 Winning bet paid out! +${formatCurrency(payoutMinor)} added to your wallet for ${matchName}!`);
-    } catch (e) {
-      toast.error("Failed to sync winnings to Supabase. Graceful simulation credited.");
-    }
   };
 
   // Place Bet Transaction Handler
@@ -385,12 +356,13 @@ export function BettingConsole({ currentUserId, walletBalance, formatCurrency }:
       return;
     }
 
-    startSubmitting(async () => {
+    startSubmitting(() => {
       const targetMatch = matches.find(m => m.id === selectedBet.matchId);
       if (!targetMatch) return;
 
       const payout = +(stake * selectedBet.odds).toFixed(2);
       const stakeMinor = Math.round(stake * 100);
+      const nextBalance = walletBalance - stakeMinor;
 
       const newBet: Bet = {
         id: `bet-${Date.now()}`,
@@ -406,50 +378,17 @@ export function BettingConsole({ currentUserId, walletBalance, formatCurrency }:
         createdAt: new Date().toISOString()
       };
 
-      // Perform real Supabase transaction if user is logged in
-      if (currentUserId) {
-        try {
-          // 1. Insert debit transaction
-          const { error: txErr } = await supabase
-            .from("wallet_transactions")
-            .insert({
-              user_id: currentUserId,
-              amount_minor: stakeMinor,
-              type: "PAYMENT" // debit payment
-            });
+      onWalletUpdate?.(nextBalance, {
+        id: `tx-${Date.now()}`,
+        amount_minor: stakeMinor,
+        type: "PAYMENT",
+        description: `Bet placed on ${newBet.matchName}`,
+        created_at: new Date().toISOString()
+      });
 
-          if (txErr) throw txErr;
-
-          // 2. Decrement wallet balance
-          const { data: walletData, error: fetchErr } = await supabase
-            .from("wallets")
-            .select("balance_minor")
-            .eq("user_id", currentUserId)
-            .maybeSingle();
-
-          if (fetchErr || !walletData) throw fetchErr || new Error("No wallet found");
-
-          const newBal = walletData.balance_minor - stakeMinor;
-          const { error: upErr } = await supabase
-            .from("wallets")
-            .update({ balance_minor: newBal })
-            .eq("user_id", currentUserId);
-
-          if (upErr) throw upErr;
-
-          // Commit bet local state
-          setPlacedBets(curr => [newBet, ...curr]);
-          setSelectedBet(null);
-          toast.success("🎫 Bet placed successfully! Stake deducted from wallet.");
-        } catch (e) {
-          toast.error("Failed to commit bet ledger to Supabase. Try again.");
-        }
-      } else {
-        // Safe mock fallback
-        setPlacedBets(curr => [newBet, ...curr]);
-        setSelectedBet(null);
-        toast.success("🎫 Simulated bet placed! (No Supabase User Session)");
-      }
+      setPlacedBets(curr => [newBet, ...curr]);
+      setSelectedBet(null);
+      toast.success("🎫 Bet placed successfully! Stake deducted from wallet.");
     });
   };
 
@@ -886,7 +825,7 @@ export function BettingConsole({ currentUserId, walletBalance, formatCurrency }:
           <span className="block text-[9px] uppercase tracking-wider text-[#60EFFF] font-heading mb-2">Arena Betting Ledger rules</span>
           <ul className="space-y-2 text-gray-muted list-disc list-inside leading-relaxed text-[11px]">
             <li>Virtual matches are accelerated (running fully in 60s).</li>
-            <li>Stakes are deducted from your live Supabase Wallet balance instantly.</li>
+            <li>Stakes are deducted from your live wallet balance instantly.</li>
             <li>Bets automatically resolve upon full time. Winnings are deposited immediately in KES.</li>
             <li>Cashout holds are locked on booking tabs, betting operations cannot be cancelled once committed.</li>
           </ul>

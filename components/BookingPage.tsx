@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { BookingCalendar } from "@/components/BookingCalendar";
 import type { HoldResult, Pitch, Reservation } from "@/types/booking";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { User, Wallet, History, X, Save, CheckCircle, Clock, CalendarDays, RefreshCw, Trophy } from "lucide-react";
 import { toast } from "sonner";
 import { BettingConsole } from "@/components/BettingConsole";
@@ -32,7 +31,6 @@ interface WalletTx {
 
 export function BookingPage({ initialPitches, initialReservations, day, amountMinor }: BookingPageProps) {
   const router = useRouter();
-  const [session, setSession] = useState<any>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [walletBalance, setWalletBalance] = useState<number>(0);
   const [transactions, setTransactions] = useState<WalletTx[]>([]);
@@ -46,172 +44,71 @@ export function BookingPage({ initialPitches, initialReservations, day, amountMi
   const [phoneNumber, setPhoneNumber] = useState("");
   const [isSaving, startSaving] = useTransition();
 
-  const supabase = getSupabaseBrowserClient();
+  const userId = "mock-user";
 
-  // Load / Create anonymous session
   useEffect(() => {
-    async function initAuth() {
-      const { data: { session: currentSession } } = await supabase.auth.getSession();
-      
-      if (currentSession) {
-        setSession(currentSession);
-      } else {
-        // Automatically sign in anonymously to ensure Captain has an account
-        const { data, error } = await supabase.auth.signInAnonymously();
-        if (error) {
-          toast.error("Could not set up temporary session. Some features may be offline.");
-        } else if (data.session) {
-          setSession(data.session);
-        }
-      }
-    }
-    void initAuth();
-
-    // Listen for auth state change
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
-    });
-
-    return () => {
-      subscription.unsubscribe();
+    const savedProfile = window.localStorage.getItem("kahawa-profile");
+    const savedPhone = window.localStorage.getItem("kahawa-prefill-phone");
+    const defaultProfile = {
+      id: userId,
+      full_name: "Captain Simba",
+      phone_number: savedPhone || "0712345678"
     };
-  }, [supabase]);
 
-  // Load profile, wallet and history once session is ready
-  useEffect(() => {
-    if (!session?.user) return;
+    const profileData = savedProfile ? JSON.parse(savedProfile) as UserProfile : defaultProfile;
+    setProfile(profileData);
+    setFullName(profileData.full_name);
+    setPhoneNumber(profileData.phone_number);
 
-    const userId = session.user.id;
+    const savedWallet = window.localStorage.getItem("kahawa-wallet-balance");
+    const savedTxData = window.localStorage.getItem("kahawa-wallet-transactions");
+    const savedBookings = window.localStorage.getItem("kahawa-bookings");
 
-    async function loadUserData() {
-      // 1. Fetch or create profile
-      const { data: profData, error: profErr } = await supabase
-        .from("profiles")
-        .select("id, full_name, phone_number")
-        .eq("id", userId)
-        .maybeSingle();
-
-      if (!profErr && profData) {
-        setProfile(profData);
-        setFullName(profData.full_name || "");
-        setPhoneNumber(profData.phone_number || "");
-        // Save to local storage for pre-fills
-        if (profData.phone_number) {
-          window.localStorage.setItem("kahawa-prefill-phone", profData.phone_number);
-        }
-      } else {
-        // Fallback or wait for trigger to complete profile creation
-        const defaultName = `Captain ${userId.slice(0, 4).toUpperCase()}`;
-        setFullName(defaultName);
-        setProfile({ id: userId, full_name: defaultName, phone_number: "" });
-      }
-
-      // 2. Fetch Wallet Balance
-      const { data: walletData } = await supabase
-        .from("wallets")
-        .select("balance_minor")
-        .eq("user_id", userId)
-        .maybeSingle();
-      if (walletData) {
-        setWalletBalance(walletData.balance_minor);
-      }
-
-      // 3. Fetch Transactions
-      const { data: txData } = await supabase
-        .from("wallet_transactions")
-        .select("id, amount_minor, type, created_at")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false });
-      if (txData) {
-        setTransactions(txData as WalletTx[]);
-      }
-
-      // 4. Fetch User Bookings
-      const { data: bookingsData } = await supabase
-        .from("reservations")
-        .select("id, pitch_id, slot_start, slot_end, status, booking_reference, amount_minor, created_at, updated_at")
-        .eq("user_id", userId)
-        .order("slot_start", { ascending: false });
-      if (bookingsData) {
-        setBookings(bookingsData as Reservation[]);
-      }
+    if (savedWallet) {
+      setWalletBalance(Number(savedWallet));
+    } else {
+      setWalletBalance(180000);
     }
 
-    void loadUserData();
+    if (savedTxData) {
+      setTransactions(JSON.parse(savedTxData) as WalletTx[]);
+    }
 
-    // Set up Realtime subscriptions for Wallet and bookings
-    const walletChannel = supabase
-      .channel(`user-wallet:${userId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "wallets", filter: `user_id=eq.${userId}` },
-        (payload: any) => {
-          if (payload.new) {
-            setWalletBalance(payload.new.balance_minor);
-          }
-        }
-      )
-      .subscribe();
-
-    const bookingsChannel = supabase
-      .channel(`user-bookings:${userId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "reservations", filter: `user_id=eq.${userId}` },
-        (payload: any) => {
-          if (payload.eventType === "INSERT") {
-            setBookings(curr => [payload.new as Reservation, ...curr]);
-          } else if (payload.eventType === "UPDATE") {
-            setBookings(curr => curr.map(b => b.id === payload.new.id ? payload.new as Reservation : b));
-          } else if (payload.eventType === "DELETE") {
-            setBookings(curr => curr.filter(b => b.id !== payload.old.id));
-          }
-        }
-      )
-      .subscribe();
-
-    const txChannel = supabase
-      .channel(`user-txs:${userId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "wallet_transactions", filter: `user_id=eq.${userId}` },
-        (payload: any) => {
-          if (payload.eventType === "INSERT") {
-            setTransactions(curr => [payload.new as WalletTx, ...curr]);
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(walletChannel);
-      void supabase.removeChannel(bookingsChannel);
-      void supabase.removeChannel(txChannel);
-    };
-  }, [session, supabase]);
+    if (savedBookings) {
+      setBookings(JSON.parse(savedBookings) as Reservation[]);
+    }
+  }, [userId]);
 
   const saveProfile = () => {
-    if (!session?.user) return;
-    
-    startSaving(async () => {
-      const { error } = await supabase
-        .from("profiles")
-        .upsert({
-          id: session.user.id,
-          full_name: fullName,
-          phone_number: phoneNumber
-        });
+    if (!profile) return;
 
-      if (error) {
-        toast.error("Failed to save profile. Try again.");
-      } else {
-        setProfile({ id: session.user.id, full_name: fullName, phone_number: phoneNumber });
-        if (phoneNumber) {
-          window.localStorage.setItem("kahawa-prefill-phone", phoneNumber);
-        }
-        toast.success("Profile updated successfully!");
-      }
+    startSaving(() => {
+      const nextProfile = {
+        ...profile,
+        full_name: fullName,
+        phone_number: phoneNumber
+      };
+      setProfile(nextProfile);
+      window.localStorage.setItem("kahawa-profile", JSON.stringify(nextProfile));
+      window.localStorage.setItem("kahawa-prefill-phone", phoneNumber);
+      toast.success("Profile updated successfully!");
     });
+  };
+
+  const updateWallet = (newBalance: number, tx?: WalletTx) => {
+    setWalletBalance(newBalance);
+    window.localStorage.setItem("kahawa-wallet-balance", String(newBalance));
+
+    if (tx) {
+      const nextTx = [tx, ...transactions].slice(0, 20);
+      setTransactions(nextTx);
+      window.localStorage.setItem("kahawa-wallet-transactions", JSON.stringify(nextTx));
+    }
+  };
+
+  const updateBookings = (nextBookings: Reservation[]) => {
+    setBookings(nextBookings);
+    window.localStorage.setItem("kahawa-bookings", JSON.stringify(nextBookings));
   };
 
   const onHoldCreated = useCallback((hold: HoldResult) => {
@@ -330,7 +227,7 @@ export function BookingPage({ initialPitches, initialReservations, day, amountMi
               day={day}
               amountMinor={amountMinor}
               onHoldCreated={onHoldCreated}
-              currentUserId={session?.user?.id}
+              currentUserId={profile?.id ?? "mock-user"}
             />
           </>
         ) : (
@@ -347,9 +244,10 @@ export function BookingPage({ initialPitches, initialReservations, day, amountMi
             </header>
 
             <BettingConsole
-              currentUserId={session?.user?.id}
+              currentUserId={profile?.id ?? "mock-user"}
               walletBalance={walletBalance}
               formatCurrency={formatCurrency}
+              onWalletUpdate={updateWallet}
             />
           </div>
         )}
@@ -533,7 +431,7 @@ export function BookingPage({ initialPitches, initialReservations, day, amountMi
 
               {/* Session / Account Details */}
               <div className="border-t border-gray-muted/10 pt-4 mt-6 text-center text-[10px] text-gray-muted">
-                Session ID: {session?.user?.id?.slice(0, 16)}...
+                Session ID: {profile?.id?.slice(0, 16) ?? "mock-user"}...
               </div>
 
             </div>

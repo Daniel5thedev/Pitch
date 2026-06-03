@@ -1,5 +1,4 @@
 import { BookingPage } from "@/components/BookingPage";
-import { getCachedMarketplaceAvailability } from "@/lib/booking/search";
 import type { Pitch, Reservation } from "@/types/booking";
 
 const today = new Date().toISOString().slice(0, 10);
@@ -13,24 +12,11 @@ const fallbackPitches: Pitch[] = [
 
 const fallbackReservations: Reservation[] = [];
 
-export default async function BookPage() {
-  let initialPitches = fallbackPitches;
-  let initialReservations = fallbackReservations;
-
-  try {
-    const availability = await getCachedMarketplaceAvailability(today, 15);
-    if (availability.pitches.length) {
-      initialPitches = availability.pitches;
-      initialReservations = availability.reservations;
-    }
-  } catch (error) {
-    // Fallback to local demo data when Supabase is not configured.
-  }
-
+export default function BookPage() {
   return (
     <BookingPage
-      initialPitches={initialPitches}
-      initialReservations={initialReservations}
+      initialPitches={fallbackPitches}
+      initialReservations={fallbackReservations}
       day={today}
       amountMinor={150000}
     />

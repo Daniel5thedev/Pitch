@@ -3,7 +3,6 @@
 import { FormEvent, useMemo, useState, useEffect } from "react";
 import { CheckCircle2, Loader2, Phone, ShieldCheck, TimerReset, ArrowLeft, Landmark, Zap } from "lucide-react";
 import { toast } from "sonner";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { useReservationTimer } from "@/hooks/useReservationTimer";
 import { PaymentStatusPoller } from "@/components/PaymentStatusPoller";
 import type { HoldResult, PaymentFailure, Reservation } from "@/types/booking";
@@ -93,37 +92,8 @@ export function CheckoutWizard({ hold, onExpiredRedirect, onConfirmed, onCancel 
       return;
     }
 
-    const supabase = getSupabaseBrowserClient();
-    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-
-    if (sessionError || !sessionData.session) {
-      setState("HOLD_ACTIVE");
-      toast.error("Please sign in again before paying.");
-      return;
-    }
-
-    const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/mpesa-stk-push`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${sessionData.session.access_token}`
-      },
-      body: JSON.stringify({
-        reservation_id: hold.reservation_id,
-        phone_number: normalizedPhone,
-        booking_reference: hold.booking_reference
-      })
-    });
-
-    const payload = await response.json().catch(() => ({}));
-
-    if (!response.ok || !payload.checkout_request_id) {
-      setState("HOLD_ACTIVE");
-      toast.error(payload.error ?? "We could not start the payment request. Please try again.");
-      return;
-    }
-
-    setCheckoutRequestId(String(payload.checkout_request_id));
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    setCheckoutRequestId(`mock-checkout-${Math.random().toString(36).substr(2, 9)}`);
     setState("WAITING_FOR_CONFIRMATION");
   };
 
